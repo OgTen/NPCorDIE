@@ -1,10 +1,6 @@
---[[
-    NPC OR DIE - ESP V6.3
-    Game: NPC Or Die
-]]
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 local COLORS = {
     PLAYER = Color3.fromRGB(255, 0, 0)
@@ -22,6 +18,8 @@ UI.SetValue("show_box", false)
 UI.SetValue("show_skeleton", false)
 UI.SetValue("show_label", false)
 UI.SetValue("show_distance", false)
+UI.SetValue("teleport_enabled", false)
+UI.SetValue("save_enabled", false)
 
 local EntityDrawings = {}
 local ScannedPlayers = {}
@@ -33,6 +31,21 @@ local PreviousPlayerCount = 0
 
 local LocalPlayer = Players.LocalPlayer
 local LocalPlayerName = LocalPlayer and LocalPlayer.Name or ""
+
+local SavedPosition = nil
+local character = nil
+local hrp = nil
+
+local TeleportKeybind = nil
+local SaveKeybind = nil
+
+local MOUSE_KEYS = {
+    [0x01] = true,
+    [0x02] = true,
+    [0x04] = true,
+    [0x05] = true,
+    [0x06] = true,
+}
 
 local function CountTools(model)
     local count = 0
@@ -52,9 +65,9 @@ local function IsRealPlayer(model)
     local hasAudioEmitter = model:FindFirstChild("AudioEmitter") ~= nil
     local hasTask = model:FindFirstChild("Task") ~= nil
     local hasAnimations = model:FindFirstChild("Animations") ~= nil
-    
+
     local isPlayer = false
-    
+
     if hasNameTag and toolCount >= 28 then
         if hasAudioEmitter then
             isPlayer = true
@@ -62,7 +75,7 @@ local function IsRealPlayer(model)
             isPlayer = true
         end
     end
-    
+
     return isPlayer, {
         Tools = toolCount,
         NameTag = hasNameTag,
@@ -75,7 +88,7 @@ end
 local function GetBodyParts(model)
     local parts = {}
     local allParts = {}
-    
+
     local function AddPart(name)
         local part = model:FindFirstChild(name)
         if part then
@@ -83,7 +96,7 @@ local function GetBodyParts(model)
             table.insert(allParts, part)
         end
     end
-    
+
     AddPart("Head")
     AddPart("UpperTorso")
     AddPart("LowerTorso")
@@ -100,9 +113,9 @@ local function GetBodyParts(model)
     AddPart("RightUpperLeg")
     AddPart("RightLowerLeg")
     AddPart("RightFoot")
-    
+
     parts.AllParts = allParts
-    
+
     return parts
 end
 
@@ -110,11 +123,11 @@ local function CalculateBoundingBox(bodyParts)
     if not bodyParts.AllParts or #bodyParts.AllParts == 0 then
         return nil, nil, nil
     end
-    
+
     local minX, maxX = math.huge, -math.huge
     local minY, maxY = math.huge, -math.huge
     local allOnScreen = true
-    
+
     for _, part in ipairs(bodyParts.AllParts) do
         if part and part.Position then
             local screenPos, onScreen = WorldToScreen(part.Position)
@@ -128,39 +141,39 @@ local function CalculateBoundingBox(bodyParts)
             end
         end
     end
-    
+
     if not allOnScreen or minX == math.huge then
         return nil, nil, nil
     end
-    
+
     local padding = 15
     minX = minX - padding
     minY = minY - padding
     maxX = maxX + padding
     maxY = maxY + padding
-    
+
     local width = maxX - minX
     local height = maxY - minY
-    
+
     return Vector2.new(minX, minY), width, height
 end
 
 local function ScanForPlayers()
     local found = {}
-    
+
     for _, child in ipairs(workspace:GetChildren()) do
         if child:IsA("Model") then
             local humanoid = child:FindFirstChild("Humanoid")
             local head = child:FindFirstChild("Head")
-            
+
             if humanoid and head and head:IsA("BasePart") then
                 if child.Name ~= LocalPlayerName then
                     local isAlive = humanoid.Health > 0
                     local isPlayer, details = IsRealPlayer(child)
-                    
+
                     if isPlayer and isAlive then
                         local bodyParts = GetBodyParts(child)
-                        
+
                         if bodyParts.Head and bodyParts.UpperTorso then
                             table.insert(found, {
                                 Model = child,
@@ -176,14 +189,14 @@ local function ScanForPlayers()
             end
         end
     end
-    
+
     return found
 end
 
 local function CreatePlayerDrawings(player)
     local drawings = {}
     local color = COLORS.PLAYER
-    
+
     local box = Drawing.new("Square")
     box.Color = color
     box.Thickness = 2
@@ -191,7 +204,7 @@ local function CreatePlayerDrawings(player)
     box.ZIndex = 999
     box.Visible = Settings.ShowBox
     drawings.Box = box
-    
+
     local function CreateLine(part1, part2)
         if part1 and part2 then
             local line = Drawing.new("Line")
@@ -204,7 +217,7 @@ local function CreatePlayerDrawings(player)
         end
         return nil
     end
-    
+
     if player.BodyParts.Head and player.BodyParts.UpperTorso then
         drawings.HeadToTorso = CreateLine(player.BodyParts.Head, player.BodyParts.UpperTorso)
     end
@@ -214,7 +227,7 @@ local function CreatePlayerDrawings(player)
     if player.BodyParts.LowerTorso and player.BodyParts.Root then
         drawings.LowerToRoot = CreateLine(player.BodyParts.LowerTorso, player.BodyParts.Root)
     end
-    
+
     if player.BodyParts.UpperTorso and player.BodyParts.LeftUpperArm then
         drawings.LeftUpperArm = CreateLine(player.BodyParts.UpperTorso, player.BodyParts.LeftUpperArm)
     end
@@ -224,7 +237,7 @@ local function CreatePlayerDrawings(player)
     if player.BodyParts.LeftLowerArm and player.BodyParts.LeftHand then
         drawings.LeftHand = CreateLine(player.BodyParts.LeftLowerArm, player.BodyParts.LeftHand)
     end
-    
+
     if player.BodyParts.UpperTorso and player.BodyParts.RightUpperArm then
         drawings.RightUpperArm = CreateLine(player.BodyParts.UpperTorso, player.BodyParts.RightUpperArm)
     end
@@ -234,7 +247,7 @@ local function CreatePlayerDrawings(player)
     if player.BodyParts.RightLowerArm and player.BodyParts.RightHand then
         drawings.RightHand = CreateLine(player.BodyParts.RightLowerArm, player.BodyParts.RightHand)
     end
-    
+
     if player.BodyParts.LowerTorso and player.BodyParts.LeftUpperLeg then
         drawings.LeftUpperLeg = CreateLine(player.BodyParts.LowerTorso, player.BodyParts.LeftUpperLeg)
     end
@@ -244,7 +257,7 @@ local function CreatePlayerDrawings(player)
     if player.BodyParts.LeftLowerLeg and player.BodyParts.LeftFoot then
         drawings.LeftFoot = CreateLine(player.BodyParts.LeftLowerLeg, player.BodyParts.LeftFoot)
     end
-    
+
     if player.BodyParts.LowerTorso and player.BodyParts.RightUpperLeg then
         drawings.RightUpperLeg = CreateLine(player.BodyParts.LowerTorso, player.BodyParts.RightUpperLeg)
     end
@@ -254,7 +267,7 @@ local function CreatePlayerDrawings(player)
     if player.BodyParts.RightLowerLeg and player.BodyParts.RightFoot then
         drawings.RightFoot = CreateLine(player.BodyParts.RightLowerLeg, player.BodyParts.RightFoot)
     end
-    
+
     local label = Drawing.new("Text")
     label.Font = Drawing.Fonts.UI
     label.Size = 14
@@ -264,18 +277,18 @@ local function CreatePlayerDrawings(player)
     label.ZIndex = 999
     label.Visible = Settings.ShowLabel or Settings.ShowDistance
     drawings.Label = label
-    
+
     return drawings
 end
 
 local function UpdatePlayerDrawings(drawings, player)
     local camera = workspace.CurrentCamera
     if not camera then return end
-    
+
     local headPos = player.BodyParts.Head and player.BodyParts.Head.Position
     local dist = headPos and math.floor((headPos - camera.Position).Magnitude) or 0
     local color = COLORS.PLAYER
-    
+
     if Settings.ShowBox then
         local boxPos, boxWidth, boxHeight = CalculateBoundingBox(player.BodyParts)
         if boxPos and boxWidth and boxHeight then
@@ -289,14 +302,14 @@ local function UpdatePlayerDrawings(drawings, player)
     else
         drawings.Box.Visible = false
     end
-    
+
     if Settings.ShowSkeleton then
         for name, line in pairs(drawings) do
             if name ~= "Box" and name ~= "Label" then
                 line.Color = color
-                
+
                 local part1, part2 = nil, nil
-                
+
                 local connections = {
                     HeadToTorso = {"Head", "UpperTorso"},
                     UpperToLower = {"UpperTorso", "LowerTorso"},
@@ -314,20 +327,20 @@ local function UpdatePlayerDrawings(drawings, player)
                     RightLowerLeg = {"RightUpperLeg", "RightLowerLeg"},
                     RightFoot = {"RightLowerLeg", "RightFoot"}
                 }
-                
+
                 if connections[name] then
                     part1 = player.BodyParts[connections[name][1]]
                     part2 = player.BodyParts[connections[name][2]]
                 end
-                
+
                 if part1 and part2 then
                     local pos1 = part1.Position
                     local pos2 = part2.Position
-                    
+
                     if pos1 and pos2 then
                         local screen1, on1 = WorldToScreen(pos1)
                         local screen2, on2 = WorldToScreen(pos2)
-                        
+
                         if on1 and on2 then
                             line.From = screen1
                             line.To = screen2
@@ -346,16 +359,16 @@ local function UpdatePlayerDrawings(drawings, player)
             end
         end
     end
-    
+
     if (Settings.ShowLabel or Settings.ShowDistance) and headPos then
         local screenPos, onScreen = WorldToScreen(headPos)
         if onScreen then
             local labelText = ""
-            
+
             if Settings.ShowLabel then
                 labelText = player.Name
             end
-            
+
             if Settings.ShowDistance then
                 if labelText ~= "" then
                     labelText = labelText .. " [" .. dist .. "m]"
@@ -363,7 +376,7 @@ local function UpdatePlayerDrawings(drawings, player)
                     labelText = "[" .. dist .. "m]"
                 end
             end
-            
+
             drawings.Label.Color = color
             drawings.Label.Position = screenPos - Vector2.new(0, 30)
             drawings.Label.Text = labelText
@@ -385,11 +398,11 @@ local function UpdateDrawings(entities)
         end
     end
     EntityDrawings = {}
-    
+
     for i, player in ipairs(entities) do
         EntityDrawings[i] = CreatePlayerDrawings(player)
     end
-    
+
     ScannedPlayers = entities
 end
 
@@ -404,24 +417,24 @@ local function DisplayScannedPlayers()
         end
         return
     end
-    
+
     local alivePlayers = {}
     for _, player in ipairs(ScannedPlayers) do
         if player.Model and player.Model.Parent and player.Humanoid and player.Humanoid.Health > 0 then
             table.insert(alivePlayers, player)
         end
     end
-    
+
     if #alivePlayers ~= #ScannedPlayers then
         ScannedPlayers = alivePlayers
         UpdateDrawings(alivePlayers)
         return
     end
-    
+
     if #EntityDrawings ~= #ScannedPlayers then
         UpdateDrawings(ScannedPlayers)
     end
-    
+
     for i, player in ipairs(ScannedPlayers) do
         if EntityDrawings[i] then
             UpdatePlayerDrawings(EntityDrawings[i], player)
@@ -431,11 +444,11 @@ end
 
 local function PerformFullScan(silent)
     local players = ScanForPlayers()
-    
+
     if not silent then
         local currentCount = #players
         local previousCount = PreviousPlayerCount
-        
+
         if currentCount > previousCount then
             local names = {}
             for _, p in ipairs(players) do
@@ -451,21 +464,108 @@ local function PerformFullScan(silent)
         elseif currentCount == 0 and previousCount > 0 then
             notify("All players eliminated!", "NPC Or Die", 4)
         end
-        
+
         PreviousPlayerCount = currentCount
     end
-    
+
     UpdateDrawings(players)
     IsScanning = true
     ScanTimer = 0
 end
 
-UI.AddTab("NPC Or Die", function(tab)
-    local mainSection = tab:Section("Main", "Left")
+local function EnsureCharacter()
+    if not character or not character.Parent then
+        character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        if not character then
+            return false
+        end
+        hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            return false
+        end
+    end
     
-    mainSection:Toggle("esp_enabled", "Enable ESP", UI.GetValue("esp_enabled") or false, function(state)
+    if not hrp or not hrp.Parent then
+        hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            return false
+        end
+    end
+    
+    return true
+end
+
+local function SavePosition()
+    if not EnsureCharacter() then
+        notify("Character not found!", "NPC Or Die", 3)
+        return
+    end
+    
+    if not hrp or not hrp.Parent then
+        notify("Root part not found!", "NPC Or Die", 3)
+        return
+    end
+
+    SavedPosition = hrp.Position
+    notify("Position saved!", "NPC Or Die", 4)
+end
+
+local function TeleportToSaved()
+    if not SavedPosition then
+        notify("No position saved! Press save hotkey first.", "NPC Or Die", 3)
+        return
+    end
+    
+    if not EnsureCharacter() then
+        notify("Character not found!", "NPC Or Die", 3)
+        return
+    end
+    
+    if not hrp or not hrp.Parent then
+        notify("Root part not found!", "NPC Or Die", 3)
+        return
+    end
+    
+    local pos = SavedPosition
+    hrp.CFrame = CFrame.new(pos.X, pos.Y + 3, pos.Z)
+    notify("Teleported to saved position!", "NPC Or Die", 3)
+end
+
+local function VKToEnum(vk)
+    if vk >= 65 and vk <= 90 then
+        return Enum.KeyCode[string.char(vk)]
+    end
+    local map = {
+        [0x70] = Enum.KeyCode.F1, [0x71] = Enum.KeyCode.F2,
+        [0x72] = Enum.KeyCode.F3, [0x73] = Enum.KeyCode.F4,
+        [0x74] = Enum.KeyCode.F5, [0x75] = Enum.KeyCode.F6,
+        [0x76] = Enum.KeyCode.F7, [0x77] = Enum.KeyCode.F8,
+        [0x78] = Enum.KeyCode.F9, [0x79] = Enum.KeyCode.F10,
+        [0x7A] = Enum.KeyCode.F11, [0x7B] = Enum.KeyCode.F12,
+        [0x21] = Enum.KeyCode.PageUp, [0x22] = Enum.KeyCode.PageDown,
+        [0x23] = Enum.KeyCode.End, [0x24] = Enum.KeyCode.Home,
+        [0x25] = Enum.KeyCode.Left, [0x26] = Enum.KeyCode.Up,
+        [0x27] = Enum.KeyCode.Right, [0x28] = Enum.KeyCode.Down,
+        [0x2D] = Enum.KeyCode.Insert, [0x2E] = Enum.KeyCode.Delete,
+    }
+    return map[vk]
+end
+
+UI.AddTab("NPC Or Die", function(tab)
+    local teleportSection = tab:Section("Teleport", "Left")
+    
+    teleportSection:Toggle("teleport_enabled", "Teleport Hotkey", false)
+    TeleportKeybind = teleportSection:Keybind("teleport_kb", 0x4C, "click")
+    TeleportKeybind:AddToHotkey("Teleport to Saved", "teleport_enabled")
+    
+    teleportSection:Toggle("save_enabled", "Save Hotkey", false)
+    SaveKeybind = teleportSection:Keybind("save_kb", 0x4B, "click")
+    SaveKeybind:AddToHotkey("Save Position", "save_enabled")
+
+    local visualSection = tab:Section("Visuals", "Right")
+
+    visualSection:Toggle("esp_enabled", "Enable ESP", UI.GetValue("esp_enabled") or false, function(state)
         IsEnabled = state
-        
         if state then
             PreviousPlayerCount = 0
             PerformFullScan(false)
@@ -485,48 +585,63 @@ UI.AddTab("NPC Or Die", function(tab)
             notify("ESP Disabled", "NPC Or Die", 3)
         end
     end)
-    
-    mainSection:Spacing()
-    
-    local visualSection = tab:Section("Visuals", "Right")
-    
+
+    visualSection:Spacing()
+
     visualSection:Toggle("show_box", "Full Body Box", UI.GetValue("show_box") or false, function(state)
         Settings.ShowBox = state
     end)
-    
-    visualSection:Tip("Box around entire avatar")
-    
+
     visualSection:Toggle("show_skeleton", "Skeleton", UI.GetValue("show_skeleton") or false, function(state)
         Settings.ShowSkeleton = state
     end)
-    
-    visualSection:Tip("Skeleton lines on body")
-    
+
     visualSection:Toggle("show_label", "Player Names", UI.GetValue("show_label") or false, function(state)
         Settings.ShowLabel = state
     end)
-    
-    visualSection:Tip("Show player name above head")
-    
+
     visualSection:Toggle("show_distance", "Distance", UI.GetValue("show_distance") or false, function(state)
         Settings.ShowDistance = state
     end)
-    
-    visualSection:Tip("Show distance in meters")
-    
+
     visualSection:Spacing()
-    
+
     local infoSection = tab:Section("Info", "Right")
-    
-    infoSection:Text("ESP for criminals.")
-    
+    infoSection:Text("Teleport to your saved position.")
+    infoSection:Text("See whos the real criminal.")
+    infoSection:Spacing()
     infoSection:Tip("by og_ten")
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    local key = input.KeyCode
+    
+    if UI.GetValue("teleport_enabled") == true and TeleportKeybind then
+        local vk = TeleportKeybind:GetKey()
+        if not MOUSE_KEYS[vk] then
+            local enumKey = VKToEnum(vk)
+            if enumKey and key == enumKey then
+                TeleportToSaved()
+            end
+        end
+    end
+    
+    if UI.GetValue("save_enabled") == true and SaveKeybind then
+        local vk = SaveKeybind:GetKey()
+        if not MOUSE_KEYS[vk] then
+            local enumKey = VKToEnum(vk)
+            if enumKey and key == enumKey then
+                SavePosition()
+            end
+        end
+    end
 end)
 
 RunService.RenderStepped:Connect(function()
     if IsEnabled and IsScanning then
         DisplayScannedPlayers()
-        
         ScanTimer = ScanTimer + 1/60
         if ScanTimer >= SCAN_INTERVAL then
             ScanTimer = 0
@@ -543,12 +658,12 @@ RunService.Heartbeat:Connect(function()
                 table.insert(stillAlive, player)
             end
         end
-        
+
         if #stillAlive ~= #ScannedPlayers then
             local oldCount = #ScannedPlayers
             ScannedPlayers = stillAlive
             UpdateDrawings(stillAlive)
-            
+
             if #stillAlive < oldCount and #stillAlive > 0 then
                 local names = {}
                 for _, p in ipairs(stillAlive) do
@@ -564,4 +679,4 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
-notify("NPC Or Die ESP Loaded", "NPC Or Die", 4)
+notify("NPC Or Die ESP Loaded - Enable hotkeys in Teleport section", "NPC Or Die", 4)
