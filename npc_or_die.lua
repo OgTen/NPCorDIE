@@ -773,4 +773,4 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
-notify("NPC Or Die ESP Loaded - Enable hotkeys in Teleport section", "NPC Or Die", 4)
+notify("NPC Or Die ESP Loaded", "NPC Or Die", 4)
