@@ -22,7 +22,7 @@ UI.SetValue("show_label", false)
 UI.SetValue("show_distance", false)
 UI.SetValue("teleport_enabled", false)
 UI.SetValue("save_enabled", false)
-UI.SetValue("show_saved_marker", true)
+UI.SetValue("show_saved_marker", false)
 
 local EntityDrawings = {}
 local ScannedPlayers = {}
