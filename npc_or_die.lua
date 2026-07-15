@@ -3,14 +3,16 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local COLORS = {
-    PLAYER = Color3.fromRGB(255, 0, 0)
+    PLAYER = Color3.fromRGB(255, 0, 0),
+    MARKER = Color3.fromRGB(0, 255, 0)
 }
 
 local Settings = {
     ShowBox = false,
     ShowSkeleton = false,
     ShowLabel = false,
-    ShowDistance = false
+    ShowDistance = false,
+    ShowSavedMarker = true
 }
 
 UI.SetValue("esp_enabled", false)
@@ -20,6 +22,7 @@ UI.SetValue("show_label", false)
 UI.SetValue("show_distance", false)
 UI.SetValue("teleport_enabled", false)
 UI.SetValue("save_enabled", false)
+UI.SetValue("show_saved_marker", true)
 
 local EntityDrawings = {}
 local ScannedPlayers = {}
@@ -38,6 +41,11 @@ local hrp = nil
 
 local TeleportKeybind = nil
 local SaveKeybind = nil
+
+local MarkerDrawings = {
+    Line = nil,
+    Label = nil
+}
 
 local MOUSE_KEYS = {
     [0x01] = true,
@@ -428,7 +436,6 @@ local function DisplayScannedPlayers()
     if #alivePlayers ~= #ScannedPlayers then
         ScannedPlayers = alivePlayers
         UpdateDrawings(alivePlayers)
-        return
     end
 
     if #EntityDrawings ~= #ScannedPlayers then
@@ -444,30 +451,6 @@ end
 
 local function PerformFullScan(silent)
     local players = ScanForPlayers()
-
-    if not silent then
-        local currentCount = #players
-        local previousCount = PreviousPlayerCount
-
-        if currentCount > previousCount then
-            local names = {}
-            for _, p in ipairs(players) do
-                table.insert(names, p.Name)
-            end
-            notify(string.format("Players online: %s", table.concat(names, ", ")), "NPC Or Die", 4)
-        elseif currentCount < previousCount and currentCount > 0 then
-            local names = {}
-            for _, p in ipairs(players) do
-                table.insert(names, p.Name)
-            end
-            notify(string.format("Players remaining: %s", table.concat(names, ", ")), "NPC Or Die", 3)
-        elseif currentCount == 0 and previousCount > 0 then
-            notify("All players eliminated!", "NPC Or Die", 4)
-        end
-
-        PreviousPlayerCount = currentCount
-    end
-
     UpdateDrawings(players)
     IsScanning = true
     ScanTimer = 0
@@ -529,6 +512,65 @@ local function TeleportToSaved()
     local pos = SavedPosition
     hrp.CFrame = CFrame.new(pos.X, pos.Y + 3, pos.Z)
     notify("Teleported to saved position!", "NPC Or Die", 3)
+end
+
+local function UpdateSavedPositionMarker()
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+
+    if not SavedPosition or not Settings.ShowSavedMarker then
+        if MarkerDrawings.Line then
+            MarkerDrawings.Line.Visible = false
+        end
+        if MarkerDrawings.Label then
+            MarkerDrawings.Label.Visible = false
+        end
+        return
+    end
+
+    local headPos = SavedPosition + Vector3.new(0, 3, 0)
+    local footPos = SavedPosition - Vector3.new(0, 3, 0)
+
+    local headScreen, headOnScreen = WorldToScreen(headPos)
+    local footScreen, footOnScreen = WorldToScreen(footPos)
+
+    if not headOnScreen or not footOnScreen then
+        if MarkerDrawings.Line then
+            MarkerDrawings.Line.Visible = false
+        end
+        if MarkerDrawings.Label then
+            MarkerDrawings.Label.Visible = false
+        end
+        return
+    end
+
+    if not MarkerDrawings.Line then
+        local line = Drawing.new("Line")
+        line.Color = COLORS.MARKER
+        line.Thickness = 2
+        line.Transparency = 1
+        line.ZIndex = 1000
+        MarkerDrawings.Line = line
+    end
+
+    if not MarkerDrawings.Label then
+        local label = Drawing.new("Text")
+        label.Font = Drawing.Fonts.UI
+        label.Size = 14
+        label.Color = COLORS.MARKER
+        label.Outline = false
+        label.Center = true
+        label.ZIndex = 1000
+        MarkerDrawings.Label = label
+    end
+
+    MarkerDrawings.Line.From = footScreen
+    MarkerDrawings.Line.To = headScreen
+    MarkerDrawings.Line.Visible = true
+
+    MarkerDrawings.Label.Position = headScreen - Vector2.new(0, 20)
+    MarkerDrawings.Label.Text = "SAVED POSITION"
+    MarkerDrawings.Label.Visible = true
 end
 
 local function VKToEnum(vk)
@@ -604,6 +646,10 @@ UI.AddTab("NPC Or Die", function(tab)
         Settings.ShowDistance = state
     end)
 
+    visualSection:Toggle("show_saved_marker", "Saved Position Marker", UI.GetValue("show_saved_marker") or true, function(state)
+        Settings.ShowSavedMarker = state
+    end)
+
     visualSection:Spacing()
 
     local infoSection = tab:Section("Info", "Right")
@@ -640,6 +686,8 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 RunService.RenderStepped:Connect(function()
+    UpdateSavedPositionMarker()
+    
     if IsEnabled and IsScanning then
         DisplayScannedPlayers()
         ScanTimer = ScanTimer + 1/60
@@ -663,20 +711,8 @@ RunService.Heartbeat:Connect(function()
             local oldCount = #ScannedPlayers
             ScannedPlayers = stillAlive
             UpdateDrawings(stillAlive)
-
-            if #stillAlive < oldCount and #stillAlive > 0 then
-                local names = {}
-                for _, p in ipairs(stillAlive) do
-                    table.insert(names, p.Name)
-                end
-                notify(string.format("Players remaining: %s", table.concat(names, ", ")), "NPC Or Die", 3)
-                PreviousPlayerCount = #stillAlive
-            elseif #stillAlive == 0 and oldCount > 0 then
-                notify("All players eliminated!", "NPC Or Die", 4)
-                PreviousPlayerCount = 0
-            end
         end
     end
 end)
 
-notify("NPC Or Die ESP Loaded - Enable hotkeys in Teleport section", "NPC Or Die", 4)
+notify("NPC Or Die ESP Loaded", "NPC Or Die", 4)
