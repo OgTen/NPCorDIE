@@ -30,7 +30,8 @@ local IsEnabled = false
 local IsScanning = false
 local ScanTimer = 0
 local SCAN_INTERVAL = 5
-local PreviousPlayerCount = 0
+local RoundCheckTimer = 0
+local ROUND_CHECK_INTERVAL = 2
 
 local LocalPlayer = Players.LocalPlayer
 local LocalPlayerName = LocalPlayer and LocalPlayer.Name or ""
@@ -289,6 +290,74 @@ local function CreatePlayerDrawings(player)
     return drawings
 end
 
+local function UpdateDrawings(entities)
+    for _, playerData in pairs(EntityDrawings) do
+        for _, drawing in pairs(playerData) do
+            if drawing and drawing.Remove then
+                drawing:Remove()
+            end
+        end
+    end
+    EntityDrawings = {}
+
+    for i, player in ipairs(entities) do
+        EntityDrawings[i] = CreatePlayerDrawings(player)
+    end
+
+    ScannedPlayers = entities
+end
+
+local function PerformFullScan()
+    local players = ScanForPlayers()
+    UpdateDrawings(players)
+    IsScanning = true
+    ScanTimer = 0
+end
+
+local function CheckRoundStatus()
+    local nameCounts = {}
+    local totalPlayers = 0
+    
+    for _, child in ipairs(workspace:GetChildren()) do
+        if child:IsA("Model") then
+            local humanoid = child:FindFirstChild("Humanoid")
+            if humanoid then
+                local name = child.Name
+                nameCounts[name] = (nameCounts[name] or 0) + 1
+                totalPlayers = totalPlayers + 1
+            end
+        end
+    end
+    
+    local allUnique = true
+    for _, count in pairs(nameCounts) do
+        if count > 1 then
+            allUnique = false
+            break
+        end
+    end
+    
+    local wasInRound = InRound
+    InRound = not allUnique and totalPlayers > 1
+    
+    if InRound and not wasInRound then
+        notify("Round started - ESP activated", "NPC Or Die", 3)
+        PerformFullScan()
+    elseif not InRound and wasInRound then
+        notify("Round ended - ESP deactivated", "NPC Or Die", 3)
+        for _, drawings in pairs(EntityDrawings) do
+            for _, drawing in pairs(drawings) do
+                if drawing and drawing.Remove then
+                    drawing:Remove()
+                end
+            end
+        end
+        EntityDrawings = {}
+        ScannedPlayers = {}
+        IsScanning = false
+    end
+end
+
 local function UpdatePlayerDrawings(drawings, player)
     local camera = workspace.CurrentCamera
     if not camera then return end
@@ -397,23 +466,6 @@ local function UpdatePlayerDrawings(drawings, player)
     end
 end
 
-local function UpdateDrawings(entities)
-    for _, playerData in pairs(EntityDrawings) do
-        for _, drawing in pairs(playerData) do
-            if drawing and drawing.Remove then
-                drawing:Remove()
-            end
-        end
-    end
-    EntityDrawings = {}
-
-    for i, player in ipairs(entities) do
-        EntityDrawings[i] = CreatePlayerDrawings(player)
-    end
-
-    ScannedPlayers = entities
-end
-
 local function DisplayScannedPlayers()
     if #ScannedPlayers == 0 then
         for _, drawings in pairs(EntityDrawings) do
@@ -449,13 +501,6 @@ local function DisplayScannedPlayers()
     end
 end
 
-local function PerformFullScan(silent)
-    local players = ScanForPlayers()
-    UpdateDrawings(players)
-    IsScanning = true
-    ScanTimer = 0
-end
-
 local function EnsureCharacter()
     if not character or not character.Parent then
         character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -484,13 +529,13 @@ local function SavePosition()
         return
     end
     
-    if not hrp or not hrp.Parent then
+    if not hrp then
         notify("Root part not found!", "NPC Or Die", 3)
         return
     end
 
     SavedPosition = hrp.Position
-    notify("Position saved!", "NPC Or Die", 4)
+    notify("Position saved!", "NPC Or Die", 3)
 end
 
 local function TeleportToSaved()
@@ -504,7 +549,7 @@ local function TeleportToSaved()
         return
     end
     
-    if not hrp or not hrp.Parent then
+    if not hrp then
         notify("Root part not found!", "NPC Or Die", 3)
         return
     end
@@ -610,8 +655,12 @@ UI.AddTab("NPC Or Die", function(tab)
         IsEnabled = state
         if state then
             PreviousPlayerCount = 0
-            PerformFullScan(false)
-            notify("ESP Enabled", "NPC Or Die", 3)
+            CheckRoundStatus()
+            if InRound then
+                notify("ESP Enabled", "NPC Or Die", 3)
+            else
+                notify("ESP Enabled - Waiting for round to start", "NPC Or Die", 3)
+            end
         else
             for _, drawings in pairs(EntityDrawings) do
                 for _, drawing in pairs(drawings) do
@@ -623,7 +672,6 @@ UI.AddTab("NPC Or Die", function(tab)
             EntityDrawings = {}
             ScannedPlayers = {}
             IsScanning = false
-            PreviousPlayerCount = 0
             notify("ESP Disabled", "NPC Or Die", 3)
         end
     end)
@@ -688,18 +736,29 @@ end)
 RunService.RenderStepped:Connect(function()
     UpdateSavedPositionMarker()
     
-    if IsEnabled and IsScanning then
-        DisplayScannedPlayers()
-        ScanTimer = ScanTimer + 1/60
-        if ScanTimer >= SCAN_INTERVAL then
-            ScanTimer = 0
-            PerformFullScan(true)
+    if IsEnabled then
+        RoundCheckTimer = RoundCheckTimer + 1/60
+        if RoundCheckTimer >= ROUND_CHECK_INTERVAL then
+            RoundCheckTimer = 0
+            CheckRoundStatus()
+        end
+        
+        if InRound and IsScanning then
+            DisplayScannedPlayers()
+            ScanTimer = ScanTimer + 1/60
+            if ScanTimer >= SCAN_INTERVAL then
+                ScanTimer = 0
+                PerformFullScan()
+            end
+        elseif InRound and not IsScanning then
+            IsScanning = true
+            PerformFullScan()
         end
     end
 end)
 
 RunService.Heartbeat:Connect(function()
-    if IsEnabled then
+    if IsEnabled and InRound then
         local stillAlive = {}
         for _, player in ipairs(ScannedPlayers) do
             if player.Model and player.Model.Parent and player.Humanoid and player.Humanoid.Health > 0 then
@@ -708,11 +767,10 @@ RunService.Heartbeat:Connect(function()
         end
 
         if #stillAlive ~= #ScannedPlayers then
-            local oldCount = #ScannedPlayers
             ScannedPlayers = stillAlive
             UpdateDrawings(stillAlive)
         end
     end
 end)
 
-notify("NPC Or Die ESP Loaded", "NPC Or Die", 4)
+notify("NPC Or Die ESP Loaded - Enable hotkeys in Teleport section", "NPC Or Die", 4)
