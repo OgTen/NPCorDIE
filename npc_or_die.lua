@@ -641,11 +641,23 @@ end
 UI.AddTab("NPC Or Die", function(tab)
     local teleportSection = tab:Section("Teleport", "Left")
     
-    teleportSection:Toggle("teleport_enabled", "Teleport To Position", false)
+    teleportSection:Toggle("teleport_enabled", "Teleport To Position", false, function(state)
+        if state then
+            notify("Teleport enabled", "NPC Or Die", 3)
+        else
+            notify("Teleport disabled", "NPC Or Die", 3)
+        end
+    end)
     TeleportKeybind = teleportSection:Keybind("teleport_kb", 0x4C, "click")
     TeleportKeybind:AddToHotkey("Teleport to Saved", "teleport_enabled")
     
-    teleportSection:Toggle("save_enabled", "Save Position", false)
+    teleportSection:Toggle("save_enabled", "Save Position", false, function(state)
+        if state then
+            notify("Save position enabled", "NPC Or Die", 3)
+        else
+            notify("Save position disabled", "NPC Or Die", 3)
+        end
+    end)
     SaveKeybind = teleportSection:Keybind("save_kb", 0x4B, "click")
     SaveKeybind:AddToHotkey("Save Position", "save_enabled")
 
