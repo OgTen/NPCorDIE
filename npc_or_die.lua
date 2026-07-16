@@ -22,7 +22,7 @@ UI.SetValue("show_label", false)
 UI.SetValue("show_distance", false)
 UI.SetValue("teleport_enabled", false)
 UI.SetValue("save_enabled", false)
-UI.SetValue("show_saved_marker", false)
+UI.SetValue("show_saved_marker", true)
 
 local EntityDrawings = {}
 local ScannedPlayers = {}
@@ -74,8 +74,10 @@ local function IsRealPlayer(model)
     local hasAudioEmitter = model:FindFirstChild("AudioEmitter") ~= nil
     local hasTask = model:FindFirstChild("Task") ~= nil
     local hasAnimations = model:FindFirstChild("Animations") ~= nil
+    local hasGunSource = model:FindFirstChild("GunSource") ~= nil
 
     local isPlayer = false
+    local isSheriff = false
 
     if hasNameTag and toolCount >= 28 then
         if hasAudioEmitter then
@@ -85,12 +87,39 @@ local function IsRealPlayer(model)
         end
     end
 
+    if isPlayer then
+        if hasGunSource then
+            isSheriff = true
+        end
+
+        if model.Name:lower():find("sheriff") then
+            isSheriff = true
+        end
+
+        if model:FindFirstChild("NameTag") and model.NameTag:IsA("ObjectValue") then
+            local tagValue = model.NameTag.Value
+            if tagValue and tostring(tagValue):lower():find("sheriff") then
+                isSheriff = true
+            end
+        end
+
+        if hasTask then
+            isSheriff = false
+        end
+
+        if isSheriff then
+            isPlayer = false
+        end
+    end
+
     return isPlayer, {
         Tools = toolCount,
         NameTag = hasNameTag,
         AudioEmitter = hasAudioEmitter,
         Task = hasTask,
-        Animations = hasAnimations
+        Animations = hasAnimations,
+        IsSheriff = isSheriff,
+        HasGunSource = hasGunSource
     }
 end
 
@@ -180,7 +209,7 @@ local function ScanForPlayers()
                     local isAlive = humanoid.Health > 0
                     local isPlayer, details = IsRealPlayer(child)
 
-                    if isPlayer and isAlive then
+                    if isPlayer and isAlive and not details.IsSheriff then
                         local bodyParts = GetBodyParts(child)
 
                         if bodyParts.Head and bodyParts.UpperTorso then
@@ -307,9 +336,34 @@ local function UpdateDrawings(entities)
     ScannedPlayers = entities
 end
 
-local function PerformFullScan()
+local function PerformFullScan(force)
     local players = ScanForPlayers()
-    UpdateDrawings(players)
+    
+    if force then
+        UpdateDrawings(players)
+        ScannedPlayers = players
+        IsScanning = true
+        ScanTimer = 0
+        return
+    end
+    
+    local changed = false
+    if #players ~= #ScannedPlayers then
+        changed = true
+    else
+        for i = 1, #players do
+            if players[i].Name ~= ScannedPlayers[i].Name then
+                changed = true
+                break
+            end
+        end
+    end
+    
+    if changed then
+        UpdateDrawings(players)
+        ScannedPlayers = players
+    end
+    
     IsScanning = true
     ScanTimer = 0
 end
@@ -342,9 +396,10 @@ local function CheckRoundStatus()
     
     if InRound and not wasInRound then
         notify("Round started - ESP activated", "NPC Or Die", 3)
-        PerformFullScan()
+        PerformFullScan(true)
     elseif not InRound and wasInRound then
         notify("Round ended - ESP deactivated", "NPC Or Die", 3)
+        SavedPosition = nil
         for _, drawings in pairs(EntityDrawings) do
             for _, drawing in pairs(drawings) do
                 if drawing and drawing.Remove then
@@ -555,7 +610,7 @@ local function TeleportToSaved()
     end
     
     local pos = SavedPosition
-    hrp.CFrame = CFrame.new(pos.X, pos.Y + 3, pos.Z)
+    hrp.CFrame = CFrame.new(pos.X, pos.Y, pos.Z)
     notify("Teleported to saved position!", "NPC Or Die", 3)
 end
 
@@ -666,7 +721,6 @@ UI.AddTab("NPC Or Die", function(tab)
     visualSection:Toggle("esp_enabled", "Enable ESP", UI.GetValue("esp_enabled") or false, function(state)
         IsEnabled = state
         if state then
-            PreviousPlayerCount = 0
             CheckRoundStatus()
             if InRound then
                 notify("ESP Enabled", "NPC Or Die", 3)
@@ -764,7 +818,7 @@ RunService.RenderStepped:Connect(function()
             end
         elseif InRound and not IsScanning then
             IsScanning = true
-            PerformFullScan()
+            PerformFullScan(true)
         end
     end
 end)
