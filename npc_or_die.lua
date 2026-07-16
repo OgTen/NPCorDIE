@@ -2,10 +2,37 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
-local COLORS = {
-    PLAYER = Color3.fromRGB(255, 0, 0),
-    MARKER = Color3.fromRGB(0, 255, 0)
-}
+local DEFAULT_PLAYER_COLOR = Color3.fromRGB(255, 0, 0)
+local COLOR_FILE = "npc_or_die_colors.json"
+
+local function LoadSavedColors()
+    local colors = {
+        PLAYER = DEFAULT_PLAYER_COLOR
+    }
+    
+    if isfile and isfile(COLOR_FILE) then
+        local success, data = pcall(readfile, COLOR_FILE)
+        if success and data then
+            local parsed = game:GetService("HttpService"):JSONDecode(data)
+            if parsed and parsed.PLAYER then
+                colors.PLAYER = Color3.fromRGB(parsed.PLAYER[1]*255, parsed.PLAYER[2]*255, parsed.PLAYER[3]*255)
+            end
+        end
+    end
+    return colors
+end
+
+local function SaveColors(colors)
+    local data = game:GetService("HttpService"):JSONEncode({
+        PLAYER = {colors.PLAYER.R, colors.PLAYER.G, colors.PLAYER.B}
+    })
+    if writefile then
+        writefile(COLOR_FILE, data)
+    end
+end
+
+local COLORS = LoadSavedColors()
+local PLAYER_COLOR = COLORS.PLAYER
 
 local Settings = {
     ShowBox = false,
@@ -56,30 +83,16 @@ local MOUSE_KEYS = {
     [0x06] = true,
 }
 
-local function CountTools(model)
-    local count = 0
-    for _, child in ipairs(model:GetChildren()) do
-        if child:IsA("Tool") or child:IsA("Accessory") or child:IsA("Clothing") or 
-           child:IsA("Shirt") or child:IsA("Pants") or child:IsA("Hat") or
-           child:IsA("Part") or child:IsA("MeshPart") then
-            count = count + 1
-        end
-    end
-    return count
-end
-
 local function IsRealPlayer(model)
-    local toolCount = CountTools(model)
     local hasNameTag = model:FindFirstChild("NameTag") ~= nil
     local hasAudioEmitter = model:FindFirstChild("AudioEmitter") ~= nil
     local hasTask = model:FindFirstChild("Task") ~= nil
     local hasAnimations = model:FindFirstChild("Animations") ~= nil
-    local hasGunSource = model:FindFirstChild("GunSource") ~= nil
 
     local isPlayer = false
     local isSheriff = false
 
-    if hasNameTag and toolCount >= 28 then
+    if hasNameTag then
         if hasAudioEmitter then
             isPlayer = true
         elseif hasTask and hasAnimations then
@@ -87,39 +100,17 @@ local function IsRealPlayer(model)
         end
     end
 
-    if isPlayer then
-        if hasGunSource then
-            isSheriff = true
-        end
-
-        if model.Name:lower():find("sheriff") then
-            isSheriff = true
-        end
-
-        if model:FindFirstChild("NameTag") and model.NameTag:IsA("ObjectValue") then
-            local tagValue = model.NameTag.Value
-            if tagValue and tostring(tagValue):lower():find("sheriff") then
-                isSheriff = true
-            end
-        end
-
-        if hasTask then
-            isSheriff = false
-        end
-
-        if isSheriff then
-            isPlayer = false
-        end
+    if hasNameTag and not hasTask and not hasAnimations then
+        isSheriff = true
+        isPlayer = false
     end
 
     return isPlayer, {
-        Tools = toolCount,
         NameTag = hasNameTag,
         AudioEmitter = hasAudioEmitter,
         Task = hasTask,
         Animations = hasAnimations,
-        IsSheriff = isSheriff,
-        HasGunSource = hasGunSource
+        IsSheriff = isSheriff
     }
 end
 
@@ -197,6 +188,10 @@ local function CalculateBoundingBox(bodyParts)
 end
 
 local function ScanForPlayers()
+    if not IsEnabled then
+        return {}
+    end
+
     local found = {}
 
     for _, child in ipairs(workspace:GetChildren()) do
@@ -233,7 +228,7 @@ end
 
 local function CreatePlayerDrawings(player)
     local drawings = {}
-    local color = COLORS.PLAYER
+    local color = PLAYER_COLOR
 
     local box = Drawing.new("Square")
     box.Color = color
@@ -336,22 +331,14 @@ local function UpdateDrawings(entities)
     ScannedPlayers = entities
 end
 
-local function PerformFullScan(force)
+local function PerformFullScan()
     local players = ScanForPlayers()
-    
-    if force then
-        UpdateDrawings(players)
-        ScannedPlayers = players
-        IsScanning = true
-        ScanTimer = 0
-        return
-    end
     
     local changed = false
     if #players ~= #ScannedPlayers then
         changed = true
     else
-        for i = 1, #players do
+        for i = 1, math.min(#players, 10) do
             if players[i].Name ~= ScannedPlayers[i].Name then
                 changed = true
                 break
@@ -396,7 +383,7 @@ local function CheckRoundStatus()
     
     if InRound and not wasInRound then
         notify("Round started - ESP activated", "NPC Or Die", 3)
-        PerformFullScan(true)
+        PerformFullScan()
     elseif not InRound and wasInRound then
         notify("Round ended - ESP deactivated", "NPC Or Die", 3)
         SavedPosition = nil
@@ -419,7 +406,7 @@ local function UpdatePlayerDrawings(drawings, player)
 
     local headPos = player.BodyParts.Head and player.BodyParts.Head.Position
     local dist = headPos and math.floor((headPos - camera.Position).Magnitude) or 0
-    local color = COLORS.PLAYER
+    local color = PLAYER_COLOR
 
     if Settings.ShowBox then
         local boxPos, boxWidth, boxHeight = CalculateBoundingBox(player.BodyParts)
@@ -543,6 +530,7 @@ local function DisplayScannedPlayers()
     if #alivePlayers ~= #ScannedPlayers then
         ScannedPlayers = alivePlayers
         UpdateDrawings(alivePlayers)
+        return
     end
 
     if #EntityDrawings ~= #ScannedPlayers then
@@ -742,6 +730,25 @@ UI.AddTab("NPC Or Die", function(tab)
         end
     end)
 
+    visualSection:ColorPicker("player_color", PLAYER_COLOR.R, PLAYER_COLOR.G, PLAYER_COLOR.B, 1, function(color, alpha)
+        PLAYER_COLOR = color
+        COLORS.PLAYER = color
+        SaveColors(COLORS)
+        for _, drawings in pairs(EntityDrawings) do
+            for _, drawing in pairs(drawings) do
+                if drawing and drawing.Color then
+                    drawing.Color = color
+                end
+            end
+        end
+        if MarkerDrawings.Line then
+            MarkerDrawings.Line.Color = color
+        end
+        if MarkerDrawings.Label then
+            MarkerDrawings.Label.Color = color
+        end
+    end)
+
     visualSection:Spacing()
 
     visualSection:Toggle("show_box", "Full Body Box", UI.GetValue("show_box") or false, function(state)
@@ -818,7 +825,7 @@ RunService.RenderStepped:Connect(function()
             end
         elseif InRound and not IsScanning then
             IsScanning = true
-            PerformFullScan(true)
+            PerformFullScan()
         end
     end
 end)
