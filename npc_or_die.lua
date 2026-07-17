@@ -6,10 +6,7 @@ local DEFAULT_PLAYER_COLOR = Color3.fromRGB(255, 0, 0)
 local COLOR_FILE = "npc_or_die_colors.json"
 
 local function LoadSavedColors()
-    local colors = {
-        PLAYER = DEFAULT_PLAYER_COLOR
-    }
-    
+    local colors = { PLAYER = DEFAULT_PLAYER_COLOR }
     if isfile and isfile(COLOR_FILE) then
         local success, data = pcall(readfile, COLOR_FILE)
         if success and data then
@@ -23,12 +20,8 @@ local function LoadSavedColors()
 end
 
 local function SaveColors(colors)
-    local data = game:GetService("HttpService"):JSONEncode({
-        PLAYER = {colors.PLAYER.R, colors.PLAYER.G, colors.PLAYER.B}
-    })
-    if writefile then
-        writefile(COLOR_FILE, data)
-    end
+    local data = game:GetService("HttpService"):JSONEncode({ PLAYER = {colors.PLAYER.R, colors.PLAYER.G, colors.PLAYER.B} })
+    if writefile then writefile(COLOR_FILE, data) end
 end
 
 local COLORS = LoadSavedColors()
@@ -70,17 +63,11 @@ local hrp = nil
 local TeleportKeybind = nil
 local SaveKeybind = nil
 
-local MarkerDrawings = {
-    Line = nil,
-    Label = nil
-}
+local MarkerDrawings = { Line = nil, Label = nil }
 
 local MOUSE_KEYS = {
-    [0x01] = true,
-    [0x02] = true,
-    [0x04] = true,
-    [0x05] = true,
-    [0x06] = true,
+    [0x01] = true, [0x02] = true, [0x04] = true,
+    [0x05] = true, [0x06] = true,
 }
 
 local function IsRealPlayer(model)
@@ -144,7 +131,6 @@ local function GetBodyParts(model)
     AddPart("RightFoot")
 
     parts.AllParts = allParts
-
     return parts
 end
 
@@ -188,9 +174,7 @@ local function CalculateBoundingBox(bodyParts)
 end
 
 local function ScanForPlayers()
-    if not IsEnabled then
-        return {}
-    end
+    if not IsEnabled then return {} end
 
     local found = {}
 
@@ -547,20 +531,14 @@ end
 local function EnsureCharacter()
     if not character or not character.Parent then
         character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        if not character then
-            return false
-        end
+        if not character then return false end
         hrp = character:FindFirstChild("HumanoidRootPart")
-        if not hrp then
-            return false
-        end
+        if not hrp then return false end
     end
     
     if not hrp or not hrp.Parent then
         hrp = character:FindFirstChild("HumanoidRootPart")
-        if not hrp then
-            return false
-        end
+        if not hrp then return false end
     end
     
     return true
@@ -607,12 +585,8 @@ local function UpdateSavedPositionMarker()
     if not camera then return end
 
     if not SavedPosition or not Settings.ShowSavedMarker then
-        if MarkerDrawings.Line then
-            MarkerDrawings.Line.Visible = false
-        end
-        if MarkerDrawings.Label then
-            MarkerDrawings.Label.Visible = false
-        end
+        if MarkerDrawings.Line then MarkerDrawings.Line.Visible = false end
+        if MarkerDrawings.Label then MarkerDrawings.Label.Visible = false end
         return
     end
 
@@ -623,33 +597,27 @@ local function UpdateSavedPositionMarker()
     local footScreen, footOnScreen = WorldToScreen(footPos)
 
     if not headOnScreen or not footOnScreen then
-        if MarkerDrawings.Line then
-            MarkerDrawings.Line.Visible = false
-        end
-        if MarkerDrawings.Label then
-            MarkerDrawings.Label.Visible = false
-        end
+        if MarkerDrawings.Line then MarkerDrawings.Line.Visible = false end
+        if MarkerDrawings.Label then MarkerDrawings.Label.Visible = false end
         return
     end
 
     if not MarkerDrawings.Line then
-        local line = Drawing.new("Line")
-        line.Color = COLORS.MARKER
-        line.Thickness = 2
-        line.Transparency = 1
-        line.ZIndex = 1000
-        MarkerDrawings.Line = line
+        MarkerDrawings.Line = Drawing.new("Line")
+        MarkerDrawings.Line.Color = COLORS.MARKER
+        MarkerDrawings.Line.Thickness = 2
+        MarkerDrawings.Line.Transparency = 1
+        MarkerDrawings.Line.ZIndex = 1000
     end
 
     if not MarkerDrawings.Label then
-        local label = Drawing.new("Text")
-        label.Font = Drawing.Fonts.UI
-        label.Size = 14
-        label.Color = COLORS.MARKER
-        label.Outline = false
-        label.Center = true
-        label.ZIndex = 1000
-        MarkerDrawings.Label = label
+        MarkerDrawings.Label = Drawing.new("Text")
+        MarkerDrawings.Label.Font = Drawing.Fonts.UI
+        MarkerDrawings.Label.Size = 14
+        MarkerDrawings.Label.Color = COLORS.MARKER
+        MarkerDrawings.Label.Outline = false
+        MarkerDrawings.Label.Center = true
+        MarkerDrawings.Label.ZIndex = 1000
     end
 
     MarkerDrawings.Line.From = footScreen
@@ -659,26 +627,6 @@ local function UpdateSavedPositionMarker()
     MarkerDrawings.Label.Position = headScreen - Vector2.new(0, 20)
     MarkerDrawings.Label.Text = "SAVED POSITION"
     MarkerDrawings.Label.Visible = true
-end
-
-local function VKToEnum(vk)
-    if vk >= 65 and vk <= 90 then
-        return Enum.KeyCode[string.char(vk)]
-    end
-    local map = {
-        [0x70] = Enum.KeyCode.F1, [0x71] = Enum.KeyCode.F2,
-        [0x72] = Enum.KeyCode.F3, [0x73] = Enum.KeyCode.F4,
-        [0x74] = Enum.KeyCode.F5, [0x75] = Enum.KeyCode.F6,
-        [0x76] = Enum.KeyCode.F7, [0x77] = Enum.KeyCode.F8,
-        [0x78] = Enum.KeyCode.F9, [0x79] = Enum.KeyCode.F10,
-        [0x7A] = Enum.KeyCode.F11, [0x7B] = Enum.KeyCode.F12,
-        [0x21] = Enum.KeyCode.PageUp, [0x22] = Enum.KeyCode.PageDown,
-        [0x23] = Enum.KeyCode.End, [0x24] = Enum.KeyCode.Home,
-        [0x25] = Enum.KeyCode.Left, [0x26] = Enum.KeyCode.Up,
-        [0x27] = Enum.KeyCode.Right, [0x28] = Enum.KeyCode.Down,
-        [0x2D] = Enum.KeyCode.Insert, [0x2E] = Enum.KeyCode.Delete,
-    }
-    return map[vk]
 end
 
 UI.AddTab("NPC Or Die", function(tab)
@@ -741,12 +689,8 @@ UI.AddTab("NPC Or Die", function(tab)
                 end
             end
         end
-        if MarkerDrawings.Line then
-            MarkerDrawings.Line.Color = color
-        end
-        if MarkerDrawings.Label then
-            MarkerDrawings.Label.Color = color
-        end
+        if MarkerDrawings.Line then MarkerDrawings.Line.Color = color end
+        if MarkerDrawings.Label then MarkerDrawings.Label.Color = color end
     end)
 
     visualSection:Spacing()
@@ -786,22 +730,22 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     local key = input.KeyCode
     
     if UI.GetValue("teleport_enabled") == true and TeleportKeybind then
-        local vk = TeleportKeybind:GetKey()
-        if not MOUSE_KEYS[vk] then
-            local enumKey = VKToEnum(vk)
-            if enumKey and key == enumKey then
-                TeleportToSaved()
-            end
+        local boundKey = TeleportKeybind:GetKey()
+        if boundKey >= 65 and boundKey <= 90 then
+            boundKey = boundKey + 32
+        end
+        if key == boundKey then
+            TeleportToSaved()
         end
     end
     
     if UI.GetValue("save_enabled") == true and SaveKeybind then
-        local vk = SaveKeybind:GetKey()
-        if not MOUSE_KEYS[vk] then
-            local enumKey = VKToEnum(vk)
-            if enumKey and key == enumKey then
-                SavePosition()
-            end
+        local boundKey = SaveKeybind:GetKey()
+        if boundKey >= 65 and boundKey <= 90 then
+            boundKey = boundKey + 32
+        end
+        if key == boundKey then
+            SavePosition()
         end
     end
 end)
