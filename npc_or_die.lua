@@ -2,10 +2,31 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
-local COLORS = {
-    PLAYER = Color3.fromRGB(255, 0, 0),
-    MARKER = Color3.fromRGB(0, 255, 0)
-}
+local DEFAULT_PLAYER_COLOR = Color3.fromRGB(255, 0, 0)
+local COLOR_FILE = "npc_or_die_colors.json"
+
+local function LoadSavedColors()
+    local colors = { PLAYER = DEFAULT_PLAYER_COLOR }
+    if isfile and isfile(COLOR_FILE) then
+        local success, data = pcall(readfile, COLOR_FILE)
+        if success and data then
+            local parsed = game:GetService("HttpService"):JSONDecode(data)
+            if parsed and parsed.PLAYER then
+                colors.PLAYER = Color3.fromRGB(parsed.PLAYER[1]*255, parsed.PLAYER[2]*255, parsed.PLAYER[3]*255)
+            end
+        end
+    end
+    return colors
+end
+
+local function SaveColors(colors)
+    local data = game:GetService("HttpService"):JSONEncode({ PLAYER = {colors.PLAYER.R, colors.PLAYER.G, colors.PLAYER.B} })
+    if writefile then writefile(COLOR_FILE, data) end
+end
+
+local COLORS = LoadSavedColors()
+local PLAYER_COLOR = COLORS.PLAYER
+local MARKER_COLOR = Color3.fromRGB(0, 255, 0)
 
 local Settings = {
     ShowBox = false,
@@ -43,43 +64,23 @@ local hrp = nil
 local TeleportKeybind = nil
 local SaveKeybind = nil
 
-local MarkerDrawings = {
-    Line = nil,
-    Label = nil
-}
+local MarkerDrawings = { Line = nil, Label = nil }
 
 local MOUSE_KEYS = {
-    [0x01] = true,
-    [0x02] = true,
-    [0x04] = true,
-    [0x05] = true,
-    [0x06] = true,
+    [0x01] = true, [0x02] = true, [0x04] = true,
+    [0x05] = true, [0x06] = true,
 }
 
-local function CountTools(model)
-    local count = 0
-    for _, child in ipairs(model:GetChildren()) do
-        if child:IsA("Tool") or child:IsA("Accessory") or child:IsA("Clothing") or 
-           child:IsA("Shirt") or child:IsA("Pants") or child:IsA("Hat") or
-           child:IsA("Part") or child:IsA("MeshPart") then
-            count = count + 1
-        end
-    end
-    return count
-end
-
 local function IsRealPlayer(model)
-    local toolCount = CountTools(model)
     local hasNameTag = model:FindFirstChild("NameTag") ~= nil
     local hasAudioEmitter = model:FindFirstChild("AudioEmitter") ~= nil
     local hasTask = model:FindFirstChild("Task") ~= nil
     local hasAnimations = model:FindFirstChild("Animations") ~= nil
-    local hasGunSource = model:FindFirstChild("GunSource") ~= nil
 
     local isPlayer = false
     local isSheriff = false
 
-    if hasNameTag and toolCount >= 28 then
+    if hasNameTag then
         if hasAudioEmitter then
             isPlayer = true
         elseif hasTask and hasAnimations then
@@ -87,39 +88,17 @@ local function IsRealPlayer(model)
         end
     end
 
-    if isPlayer then
-        if hasGunSource then
-            isSheriff = true
-        end
-
-        if model.Name:lower():find("sheriff") then
-            isSheriff = true
-        end
-
-        if model:FindFirstChild("NameTag") and model.NameTag:IsA("ObjectValue") then
-            local tagValue = model.NameTag.Value
-            if tagValue and tostring(tagValue):lower():find("sheriff") then
-                isSheriff = true
-            end
-        end
-
-        if hasTask then
-            isSheriff = false
-        end
-
-        if isSheriff then
-            isPlayer = false
-        end
+    if hasNameTag and not hasTask and not hasAnimations then
+        isSheriff = true
+        isPlayer = false
     end
 
     return isPlayer, {
-        Tools = toolCount,
         NameTag = hasNameTag,
         AudioEmitter = hasAudioEmitter,
         Task = hasTask,
         Animations = hasAnimations,
-        IsSheriff = isSheriff,
-        HasGunSource = hasGunSource
+        IsSheriff = isSheriff
     }
 end
 
@@ -153,7 +132,6 @@ local function GetBodyParts(model)
     AddPart("RightFoot")
 
     parts.AllParts = allParts
-
     return parts
 end
 
@@ -197,6 +175,8 @@ local function CalculateBoundingBox(bodyParts)
 end
 
 local function ScanForPlayers()
+    if not IsEnabled then return {} end
+
     local found = {}
 
     for _, child in ipairs(workspace:GetChildren()) do
@@ -233,7 +213,7 @@ end
 
 local function CreatePlayerDrawings(player)
     local drawings = {}
-    local color = COLORS.PLAYER
+    local color = PLAYER_COLOR
 
     local box = Drawing.new("Square")
     box.Color = color
@@ -336,22 +316,14 @@ local function UpdateDrawings(entities)
     ScannedPlayers = entities
 end
 
-local function PerformFullScan(force)
+local function PerformFullScan()
     local players = ScanForPlayers()
-    
-    if force then
-        UpdateDrawings(players)
-        ScannedPlayers = players
-        IsScanning = true
-        ScanTimer = 0
-        return
-    end
     
     local changed = false
     if #players ~= #ScannedPlayers then
         changed = true
     else
-        for i = 1, #players do
+        for i = 1, math.min(#players, 10) do
             if players[i].Name ~= ScannedPlayers[i].Name then
                 changed = true
                 break
@@ -396,7 +368,7 @@ local function CheckRoundStatus()
     
     if InRound and not wasInRound then
         notify("Round started - ESP activated", "NPC Or Die", 3)
-        PerformFullScan(true)
+        PerformFullScan()
     elseif not InRound and wasInRound then
         notify("Round ended - ESP deactivated", "NPC Or Die", 3)
         SavedPosition = nil
@@ -419,7 +391,7 @@ local function UpdatePlayerDrawings(drawings, player)
 
     local headPos = player.BodyParts.Head and player.BodyParts.Head.Position
     local dist = headPos and math.floor((headPos - camera.Position).Magnitude) or 0
-    local color = COLORS.PLAYER
+    local color = PLAYER_COLOR
 
     if Settings.ShowBox then
         local boxPos, boxWidth, boxHeight = CalculateBoundingBox(player.BodyParts)
@@ -543,6 +515,7 @@ local function DisplayScannedPlayers()
     if #alivePlayers ~= #ScannedPlayers then
         ScannedPlayers = alivePlayers
         UpdateDrawings(alivePlayers)
+        return
     end
 
     if #EntityDrawings ~= #ScannedPlayers then
@@ -559,20 +532,14 @@ end
 local function EnsureCharacter()
     if not character or not character.Parent then
         character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        if not character then
-            return false
-        end
+        if not character then return false end
         hrp = character:FindFirstChild("HumanoidRootPart")
-        if not hrp then
-            return false
-        end
+        if not hrp then return false end
     end
     
     if not hrp or not hrp.Parent then
         hrp = character:FindFirstChild("HumanoidRootPart")
-        if not hrp then
-            return false
-        end
+        if not hrp then return false end
     end
     
     return true
@@ -650,7 +617,7 @@ local function UpdateSavedPositionMarker()
         MarkerDrawings.Line.Transparency = 1
         MarkerDrawings.Line.ZIndex = 1000
     end
-    MarkerDrawings.Line.Color = COLORS.MARKER
+    MarkerDrawings.Line.Color = MARKER_COLOR
 
     if not MarkerDrawings.Label then
         MarkerDrawings.Label = Drawing.new("Text")
@@ -660,7 +627,7 @@ local function UpdateSavedPositionMarker()
         MarkerDrawings.Label.Center = true
         MarkerDrawings.Label.ZIndex = 1000
     end
-    MarkerDrawings.Label.Color = COLORS.MARKER
+    MarkerDrawings.Label.Color = MARKER_COLOR
 
     MarkerDrawings.Line.From = footScreen
     MarkerDrawings.Line.To = headScreen
@@ -669,26 +636,6 @@ local function UpdateSavedPositionMarker()
     MarkerDrawings.Label.Position = headScreen - Vector2.new(0, 20)
     MarkerDrawings.Label.Text = "SAVED POSITION"
     MarkerDrawings.Label.Visible = true
-end
-
-local function VKToEnum(vk)
-    if vk >= 65 and vk <= 90 then
-        return Enum.KeyCode[string.char(vk)]
-    end
-    local map = {
-        [0x70] = Enum.KeyCode.F1, [0x71] = Enum.KeyCode.F2,
-        [0x72] = Enum.KeyCode.F3, [0x73] = Enum.KeyCode.F4,
-        [0x74] = Enum.KeyCode.F5, [0x75] = Enum.KeyCode.F6,
-        [0x76] = Enum.KeyCode.F7, [0x77] = Enum.KeyCode.F8,
-        [0x78] = Enum.KeyCode.F9, [0x79] = Enum.KeyCode.F10,
-        [0x7A] = Enum.KeyCode.F11, [0x7B] = Enum.KeyCode.F12,
-        [0x21] = Enum.KeyCode.PageUp, [0x22] = Enum.KeyCode.PageDown,
-        [0x23] = Enum.KeyCode.End, [0x24] = Enum.KeyCode.Home,
-        [0x25] = Enum.KeyCode.Left, [0x26] = Enum.KeyCode.Up,
-        [0x27] = Enum.KeyCode.Right, [0x28] = Enum.KeyCode.Down,
-        [0x2D] = Enum.KeyCode.Insert, [0x2E] = Enum.KeyCode.Delete,
-    }
-    return map[vk]
 end
 
 UI.AddTab("NPC Or Die", function(tab)
@@ -740,6 +687,25 @@ UI.AddTab("NPC Or Die", function(tab)
         end
     end)
 
+    visualSection:ColorPicker("player_color", PLAYER_COLOR.R, PLAYER_COLOR.G, PLAYER_COLOR.B, 1, function(color, alpha)
+        PLAYER_COLOR = color
+        COLORS.PLAYER = color
+        SaveColors(COLORS)
+        for _, drawings in pairs(EntityDrawings) do
+            for _, drawing in pairs(drawings) do
+                if drawing and drawing.Color then
+                    drawing.Color = color
+                end
+            end
+        end
+        if MarkerDrawings.Line then
+            MarkerDrawings.Line.Color = color
+        end
+        if MarkerDrawings.Label then
+            MarkerDrawings.Label.Color = color
+        end
+    end)
+
     visualSection:Spacing()
 
     visualSection:Toggle("show_box", "Full Body Box", UI.GetValue("show_box") or false, function(state)
@@ -774,14 +740,14 @@ end)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
-    local actualKey = input.KeyCode
+    local key = input.KeyCode
     
     if UI.GetValue("teleport_enabled") == true and TeleportKeybind then
         local boundKey = TeleportKeybind:GetKey()
         if boundKey >= 65 and boundKey <= 90 then
             boundKey = boundKey + 32
         end
-        if actualKey == boundKey then
+        if key == boundKey then
             TeleportToSaved()
         end
     end
@@ -791,7 +757,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if boundKey >= 65 and boundKey <= 90 then
             boundKey = boundKey + 32
         end
-        if actualKey == boundKey then
+        if key == boundKey then
             SavePosition()
         end
     end
@@ -816,7 +782,7 @@ RunService.RenderStepped:Connect(function()
             end
         elseif InRound and not IsScanning then
             IsScanning = true
-            PerformFullScan(true)
+            PerformFullScan()
         end
     end
 end)
